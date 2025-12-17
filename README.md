@@ -8,20 +8,19 @@ Designed and executed a data-driven framework to systematically validate busines
 **Key BA Methodologies & Contributions**
 
 
-**Data Cleaning & Quality Assurance: **Processed large-scale licensing datasets, identifying and removing ~22,000 non-consumer anomalies (e.g., leases, fleet sales) to ensure analysis reflected true retail market signals.
+**Data Cleaning & Quality Assurance** :Processed large-scale licensing datasets, identifying and removing ~22,000 non-consumer anomalies (e.g., leases, fleet sales) to ensure analysis reflected true retail market signals.
 
 
-**KPI Engineering:** Developed custom metrics including a dynamic "Affordability Index" (Median Price vs. Income) and a "Twin Engines" framework to measure the correlation between economic potential and infrastructure readiness.
+**KPI Engineering:**  Developed custom metrics including a dynamic "Affordability Index" (Median Price vs. Income) and a "Twin Engines" framework to measure the correlation between economic potential and infrastructure readiness.
 
-**Market Segmentation (Clustering):** Applied K-Means Clustering to categorize counties into four strategic segments, identifying a neglected "High-Potential Follower" segment: 16 counties with high income but lagging adoption due to insufficient charging stations.
+**Market Segmentation (Clustering):**  Applied K-Means Clustering to categorize counties into four strategic segments, identifying a neglected "High-Potential Follower" segment: 16 counties with high income but lagging adoption due to insufficient charging stations.
 
 
-**Strategic Insight Generation:** Proved the "Range Race" is over by visualizing a post-2022 plateau in median vehicle range (~300 miles), advising stakeholders that the core vehicle problem is solved and resources must shift to the supporting ecosystem.
+**Strategic Insight Generation:**  Proved the "Range Race" is over by visualizing a post-2022 plateau in median vehicle range (~300 miles), advising stakeholders that the core vehicle problem is solved and resources must shift to the supporting ecosystem.
 
 # Business Impact
 
 
 **Invalidated outdated strategies by demonstrating that state subsidy eligibility plummeted as sales boomed, proving current programs are misaligned with the market's modern "sweet spot".**
 
-**Defined a clear roadmap for policymakers to target infrastructure investments specifically toward the 16 "High-Potential" counties where demand is proven but throttled.
-**
+**Defined a clear roadmap for policymakers to target infrastructure investments specifically toward the 16 "High-Potential" counties where demand is proven but throttled.**
