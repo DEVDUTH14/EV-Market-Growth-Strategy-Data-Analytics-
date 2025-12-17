@@ -1,17 +1,15 @@
-#%%
 import pandas as pd
 import numpy as np
 df_new=pd.read_excel(r"C:\Users\devdu\Desktop\DATASETS\WASHINGTON STTATE\New dataset\df_new\Data cleaning and imputation\df_new_imputed.xlsx")
-#%%
 df_new
-#%%
+
 df_new=df_new[df_new["DOL Vehicle ID"]!=282718621]
-#%%
+
 ev_counts=df_new['County'].value_counts()
 pd.DataFrame(ev_counts)
-#%%
+
 #ev_counts.to_excel(r"C:\Users\devdu\Desktop\DATASETS\WASHINGTON STTATE\New dataset\df_new\EDA\COUNTY_EV_DATA.xlsx")
-#%%
+
 # normalize the column first
 col = 'Clean Alternative Fuel Vehicle Type'
 df_tmp = df_new.copy()
