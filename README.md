@@ -1,26 +1,55 @@
-# EV-Market-Growth-Strategy-Data-Analytics-
-Analyzed Washington EV trends using K-Means clustering. Disproved range and affordability barriers, identifying infrastructure as the primary bottleneck. Developed a "Twin Engines" framework that pinpointed 16 high-potential counties stalled specifically by charging deficits.
+# ⚡ EV Adoption in Washington – Data-Driven Strategy for WSDOT
 
-# Executive Summary
+**Goal:** Help the Washington State Department of Transportation (WSDOT) design a data-driven strategy to boost **new EV adoption by 25% in two years**, by identifying the *true* causal drivers of adoption instead of relying on assumptions.
 
-Designed and executed a data-driven framework to systematically validate business hypotheses regarding Electric Vehicle (EV) adoption. Moving beyond high-level assumptions, the project utilized rigorous hypothesis testing and time-series analysis to isolate the actual drivers of retail consumer behavior. The analysis debunked the "Range Anxiety" and "Affordability" myths, pivoting the strategic focus toward a critical infrastructure deficit that is throttling growth in high-potential markets.
+## 🚀 Impact
 
-**Key BA Methodologies & Contributions**
+- Proved that Washington’s EV boom is **not primarily driven** by macroeconomic trends or broad affordability.
+- Reframed WSDOT’s strategic focus from **vehicles (range, price)** to the **supporting ecosystem**, especially charging infrastructure.
+- Identified **16 “High-Potential Follower” counties** where strong demand is being throttled by an infrastructure deficit, providing a precise geographic playbook for investment.
+- Delivered a **“Twin Engines” framework** (Economic Potential + Infrastructure) and a suite of KPIs to guide ongoing policy and budget decisions.
 
+## 🧪 Methodology
 
-**Data Cleaning & Quality Assurance** :Processed large-scale licensing datasets, identifying and removing ~22,000 non-consumer anomalies (e.g., leases, fleet sales) to ensure analysis reflected true retail market signals.
+### Data Assets
 
+- **EV Sales:** Transaction-level new EV registrations from WA Dept. of Licensing.
+- **Charging Stations:** Public charging locations with open dates.
+- **Demographics:** County-level population & median household income (yearly).
+- **Macroeconomics:** Monthly statewide unemployment rate.
 
-**KPI Engineering:**  Developed custom metrics including a dynamic "Affordability Index" (Median Price vs. Income) and a "Twin Engines" framework to measure the correlation between economic potential and infrastructure readiness.
+### Data Preparation
 
-**Market Segmentation (Clustering):**  Applied K-Means Clustering to categorize counties into four strategic segments, identifying a neglected "High-Potential Follower" segment: 16 counties with high income but lagging adoption due to insufficient charging stations.
+- Pivoted to a **high-fidelity transactional dataset** to ensure analytic integrity.
+- Removed **~22,000 anomalous records** (leases, fleet sales, non-consumer noise) to focus on true consumer demand.
+- Built a **hierarchical imputation pipeline** for missing sale prices and electric ranges, visually validating outputs to avoid biasing the market signal.
 
+### Feature Engineering
 
-**Strategic Insight Generation:**  Proved the "Range Race" is over by visualizing a post-2022 plateau in median vehicle range (~300 miles), advising stakeholders that the core vehicle problem is solved and resources must shift to the supporting ecosystem.
+Key KPIs engineered for strategic insight:
 
-# Business Impact
+- `sales_per_1000_residents` and `stations_per_1000_residents` for normalized comparisons.
+- **Sale price volatility** as a proxy for **market maturity**.
+- **Affordability Index** = Median EV Price / Median Household Income.
+- **BEV : PHEV sales ratio** to track consumer technology preferences.
 
+### Analytics & Modeling
 
-**Invalidated outdated strategies by demonstrating that state subsidy eligibility plummeted as sales boomed, proving current programs are misaligned with the market's modern "sweet spot".**
+- **EDA:** Time-series charts, choropleth maps, scatter plots, box plots.
+- **Correlation (Pearson):** Quantified relationships between adoption, income, infrastructure, affordability, unemployment, range, and EV load per station.
+- **K-Means Clustering:** Segmented counties into data-driven groups (e.g., “Pacesetters,” “Followers,” “Laggards”) and surfaced **16 high-potential, under-served counties**.
+- **Normalized time-series analysis:** Compared `sales_per_1000` vs `stations_per_1000` across clusters to visually and quantitatively show where **demand is outpacing infrastructure**.
 
-**Defined a clear roadmap for policymakers to target infrastructure investments specifically toward the 16 "High-Potential" counties where demand is proven but throttled.**
+## 🔍 Key Insights
+
+- **The EV boom is unique:** Weak correlation with unemployment and affordability disproved the idea that the boom is just a reflection of a strong economy.
+- **The range race is over:** Median BEV range has plateaued around **~300 miles**, turning range into **table stakes** rather than a barrier.
+- **Subsidy design is outdated:** The state’s CAFV subsidy lost influence as eligibility declined, not because subsidies don’t work, but because **criteria lag the market**.
+- **Infrastructure is the “smoking gun”:** In 16 high-potential counties, strong economic potential is held back by flat `stations_per_1000` curves, clearly identifying **charging infrastructure as the primary bottleneck**.
+
+## 📈 Planned Extensions
+
+- Forecast EV adoption for the next **2 years** at the county level.
+- Model the adoption uplift from:
+  - **+5% increase in stations/1000 residents**.
+  - **+1% increase in median household income**.
