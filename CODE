@@ -1,0 +1,1999 @@
+#%%
+import pandas as pd
+import numpy as np
+df_new=pd.read_excel(r"C:\Users\devdu\Desktop\DATASETS\WASHINGTON STTATE\New dataset\df_new\Data cleaning and imputation\df_new_imputed.xlsx")
+#%%
+df_new
+#%%
+df_new=df_new[df_new["DOL Vehicle ID"]!=282718621]
+#%%
+ev_counts=df_new['County'].value_counts()
+pd.DataFrame(ev_counts)
+#%%
+#ev_counts.to_excel(r"C:\Users\devdu\Desktop\DATASETS\WASHINGTON STTATE\New dataset\df_new\EDA\COUNTY_EV_DATA.xlsx")
+#%%
+# normalize the column first
+col = 'Clean Alternative Fuel Vehicle Type'
+df_tmp = df_new.copy()
+df_tmp[col] = df_tmp[col].astype(str).str.strip().str.upper()
+
+# boolean flags
+df_tmp['is_bev'] = df_tmp[col].str.contains('BEV', na=False)
+df_tmp['is_phev'] = df_tmp[col].str.contains('PHEV', na=False)
+
+# group and aggregate
+result = (df_tmp
+          .groupby('County')
+          .agg(Total_EV = ('DOL Vehicle ID', 'count'),
+               BEV_Count = ('is_bev', 'sum'),
+               PHEV_Count = ('is_phev', 'sum'))
+          .sort_values('Total_EV', ascending=False)
+          .reset_index())
+
+print(result.head(20))
+
+#%%
+#result.to_excel(r"C:\Users\devdu\Desktop\DATASETS\WASHINGTON STTATE\New dataset\df_new\EDA\COUNTY_EV_DATA.xlsx")
+#%%
+county_populationa_and_median_income=pd.read_csv(r"C:\Users\devdu\Desktop\DATASETS\WASHINGTON STTATE\New dataset\WA_POPULATION AND MEDAIN INCOME.csv")
+# --- SETUP ---
+#%%
+
+# --- STEP 1: Prepare and Merge the DataFrames ---
+# For clarity, let's select only the columns we need from each DataFrame.
+sales_data = df_new[['Sale Date', 'Sale Price', 'County']].copy()
+# We will assume the column is named 'Median Household Income' for this script.
+income_data = county_populationa_and_median_income[['County', 'Median Household Income']].copy()
+#%%
+
+
+# Merge the two dataframes on the 'County' column.
+df_merged = pd.merge(sales_data, income_data, on='County', how='left')
+
+#%%
+# --- STEP 2: Data Type Conversion ---
+# Ensure the date column is in the correct datetime format for time-series operations.
+# We explicitly provide the 'format' to handle 'DD-MM-YYYY' and set errors='coerce'
+# to turn any non-matching dates into NaT (Not a Time) instead of crashing.
+df_merged['Sale Date'] = pd.to_datetime(df_merged['Sale Date'], format='%d-%m-%Y', errors='coerce')
+
+#%%
+# --- STEP 3: Perform the Time-Series Aggregation ---
+# This is the core of the analysis. We group by County, then resample by Month ('M'),
+# and calculate the median Sale Price for each group.
+# We set 'Sale Date' as the index to enable the resample operation.
+monthly_median_price = df_merged.groupby('County').apply(
+    lambda x: x.set_index('Sale Date')['Sale Price'].resample('ME').median()
+).reset_index()
+#%%
+
+# --- STEP 3: Perform the Time-Series Aggregation ---
+# This is the core of the analysis. We group by County, then resample by Month ('M'),
+# and calculate the median Sale Price for each group.
+# We set 'Sale Date' as the index to enable the resample operation.
+monthly_median_price = df_merged.groupby('County').apply(
+    lambda x: x.set_index('Sale Date')['Sale Price'].resample('M').median()
+).reset_index()
+
+# Rename columns for clarity and consistency
+monthly_median_price.rename(columns={'Sale Date': 'sale_month', 'Sale Price': 'median_ev_price_monthly'}, inplace=True)
+
+# --- STEP 4: Merge in Median Income to the Aggregated Data ---
+# Create a simple mapping of County to Income to avoid duplicate columns
+county_income_map = income_data.drop_duplicates(subset=['County'])
+
+# Merge the income data onto our new, aggregated monthly data
+df_affordability = pd.merge(monthly_median_price, county_income_map, on='County', how='left')
+
+# Drop rows where median price could not be calculated for a month (no sales)
+df_affordability.dropna(subset=['median_ev_price_monthly'], inplace=True)
+
+# --- STEP 5: Calculate the Final Index ---
+# The index is the ratio of the median monthly EV price to the median household income.
+df_affordability['affordability_index'] = df_affordability['median_ev_price_monthly'] / df_affordability['Median Household Income']
+
+# --- STEP 6: Display the Final Result ---
+# This DataFrame is now ready to be exported or used as the source for your Power BI chart.
+print("--- Final Affordability Index DataFrame ---")
+print(df_affordability.head())
+
+
+#%%
+df_affordability.to_excel(r"C:\Users\devdu\Desktop\DATASETS\WASHINGTON STTATE\New dataset\df_new\EDA\AFFORDABILITY INDEX(MONTHWISE).xlsx")
+#%%
+
+# Group by County and aggregate
+county_summary = (
+    df_new
+    .groupby("County")
+    .agg(
+        Total_EVs=("DOL Vehicle ID", "count"),
+        BEV_Count=("Clean Alternative Fuel Vehicle Type",
+                   lambda x: (x == "Battery Electric Vehicle (BEV)").sum()),
+        PHEV_Count=("Clean Alternative Fuel Vehicle Type",
+                    lambda x: (x == "Plug-in Hybrid Electric Vehicle (PHEV)").sum()),
+        Mean_Sale_Price=("Sale Price", "mean"),
+        Median_Sale_Price=("Sale Price", "median"),
+        Max_Sale_Price=("Sale Price", "max"),
+        Min_Sale_Price=("Sale Price", "min"),
+        Std_Deviation_Sale_Price=("Sale Price", "std")
+    )
+    .reset_index()
+    .sort_values(by="Total_EVs", ascending=False)
+)
+
+print(county_summary.head(10))
+
+#%%
+county_summary.to_csv(r"C:\Users\devdu\Desktop\DATASETS\WASHINGTON STTATE\New dataset\df_new\EDA\SALE_STATISTICS_BY_COUNTY_FINAL.csv")
+#%%
+    #Box Plot
+import seaborn as sns
+import matplotlib.pyplot as plt
+
+# Get the list of the top 10 counties
+top_10_counties = df_new['County'].value_counts().nlargest(10).index
+
+# Filter our cleaned dataframe to only include vehicles from these counties
+df_top_10 = df_new[df_new['County'].isin(top_10_counties)]
+
+# Create the box plot
+plt.figure(figsize=(15, 9))
+sns.boxplot(
+    data=df_top_10,
+    x='County',
+    y='Sale Price',
+    order=top_10_counties,  # Ensure the plot is ordered from highest to lowest count
+    palette='viridis'
+)
+
+# Add titles and labels for clarity
+plt.title('Comparison of EV Price Distributions Across Top 10 Counties', fontsize=16, fontweight='bold')
+plt.xlabel('County', fontsize=12)
+plt.ylabel('Sale Price ($)', fontsize=12)
+plt.xticks(rotation=45, ha='right')
+
+# Format y-axis for better readability
+plt.gca().get_yaxis().set_major_formatter(
+    plt.FuncFormatter(lambda y, p: format(int(y), ','))
+)
+plt.tight_layout()
+plt.show()
+#%%
+import pandas as pd
+import seaborn as sns
+import matplotlib.pyplot as plt
+
+# --- AIM OF THE CODE ---
+# To statistically define the "sweet spot" of the Washington EV market for both
+# BEVs and PHEVs using a quantile-based approach on our final, clean dataset.
+# We will then identify the top-selling models within this core market segment.
+
+# This script assumes 'df_final' is your fully cleaned and purified DataFrame.
+
+# --- Step 1: Define the High-Value BEV Sweet Spot ---
+print("--- Defining the High-Value Sweet Spot for BEVs ---")
+df_bev = df_new[df_new['Clean Alternative Fuel Vehicle Type'] == 'Battery Electric Vehicle (BEV)']
+
+# Price: We define the core market as the 10th to 90th percentile to remove outliers.
+price_quantiles_bev = df_bev['Sale Price'].quantile([0.10, 0.90])
+price_min_bev, price_max_bev = price_quantiles_bev[0.10], price_quantiles_bev[0.90]
+
+# Range: We calculate range quantiles ONLY on the core-priced vehicles.
+# We look at the 50th to 90th percentile to find the "high-value" range.
+core_market_bevs_df = df_bev[df_bev['Sale Price'].between(price_min_bev, price_max_bev)]
+range_quantiles_bev = core_market_bevs_df['Electric Range'].quantile([0.50, 0.90])
+range_min_bev, range_max_bev = range_quantiles_bev[0.50], range_quantiles_bev[0.90]
+
+print(f"BEV Sweet Spot: Price ${price_min_bev:,.0f}-${price_max_bev:,.0f}, Range {range_min_bev:,.0f}-{range_max_bev:,.0f} miles")
+print("-" * 60)
+
+# --- Step 2: Define the Core Market PHEV Sweet Spot ---
+print("\n--- Defining the Core Market Sweet Spot for PHEVs ---")
+df_phev = df_new[df_new['Clean Alternative Fuel Vehicle Type'] == 'Plug-in Hybrid Electric Vehicle (PHEV)']
+
+# Price: We use the same 10th to 90th percentile approach.
+price_quantiles_phev = df_phev['Sale Price'].quantile([0.10, 0.90])
+price_min_phev, price_max_phev = price_quantiles_phev[0.10], price_quantiles_phev[0.90]
+
+# Range: We focus on the core range for PHEVs.
+core_market_phevs_df = df_phev[df_phev['Sale Price'].between(price_min_phev, price_max_phev)]
+range_quantiles_phev = core_market_phevs_df['Electric Range'].quantile([0.10, 0.90])
+range_min_phev, range_max_phev = range_quantiles_phev[0.10], range_quantiles_phev[0.90]
+
+print(f"PHEV Sweet Spot: Price ${price_min_phev:,.0f}-${price_max_phev:,.0f}, Range {range_min_phev:,.0f}-{range_max_phev:,.0f} miles")
+print("-" * 60)
+
+
+# --- Step 3: Identify Key Models in the BEV Sweet Spot ---
+print("\n--- Identifying High-Value BEV Sweet Spot Models ---")
+sweet_spot_df = df_bev[
+    (df_bev['Sale Price'].between(price_min_bev, price_max_bev)) &
+    (df_bev['Electric Range'].between(range_min_bev, range_max_bev))
+]
+sweet_spot_models = sweet_spot_df.groupby(['Make', 'Model']).size().nlargest(10).reset_index(name='Count')
+print(f"Top 10 most common models in the data-driven BEV high-value sweet spot:")
+print(sweet_spot_models)
+print("-" * 60)
+
+# --- Step 4: Generate Final Presentation-Quality Scatter Plot ---
+print("\n--- Generating Combined Scatter Plot for All EV Types ---")
+plt.figure(figsize=(16, 10))
+sns.set_theme(style="whitegrid")
+
+# Create the main scatter plot
+ax = sns.scatterplot(
+    data=df_new,
+    x='Sale Price',
+    y='Electric Range',
+    hue='Clean Alternative Fuel Vehicle Type',
+    alpha=0.5,
+    palette={'Battery Electric Vehicle (BEV)': '#4285F4', 'Plug-in Hybrid Electric Vehicle (PHEV)': '#DB4437'}
+)
+
+# Add annotations for the BEV sweet spot
+ax.axvspan(price_min_bev, price_max_bev, color='blue', alpha=0.1)
+ax.axhspan(range_min_bev, range_max_bev, color='blue', alpha=0.1)
+plt.text(price_max_bev - 2000, range_max_bev - 10, 'High-Value BEV Sweet Spot',
+         fontsize=12, ha='right', style='italic', color='darkblue')
+
+# Add annotations for the PHEV sweet spot
+ax.axvspan(price_min_phev, price_max_phev, color='red', alpha=0.1)
+ax.axhspan(range_min_phev, range_max_phev, color='red', alpha=0.1)
+
+# Formatting for a professional look
+plt.title('Washington EV Market: Price vs. Range Segmentation', fontsize=20, fontweight='bold', pad=20)
+plt.xlabel('Sale Price ($)', fontsize=14)
+plt.ylabel('Electric Range (Miles)', fontsize=14)
+plt.legend(title='EV Type', loc='upper right')
+plt.grid(True, linestyle='--', linewidth=0.5)
+ax.get_xaxis().set_major_formatter(plt.FuncFormatter(lambda x, p: f'${int(x):,}'))
+plt.tight_layout()
+plt.show()
+
+#%%
+
+#%%
+import pandas as pd
+
+# This script assumes you have the following DataFrames already loaded:
+# 1. df_new: Your main, imputed, and purified sales dataset.
+county_population_and_median_income=pd.read_csv(r"C:\Users\devdu\Desktop\DATASETS\WASHINGTON STTATE\New dataset\SQL\WA_POPULATION AND MEDAIN INCOME.csv")
+charging_station_data=pd.read_excel(r"C:\Users\devdu\Desktop\DATASETS\WASHINGTON STTATE\New dataset\df_new\EDA\EV_CHARGING_STATIONS_sumary(Revers-geo coding method.xlsx")
+#    (You may need to load this from 'Final_KPI_Charging stations.xlsx - Sheet1.csv')
+
+# --- Step 1: Calculate Sales-Based Statistics ---
+# First, we'll aggregate our main sales data to get the core metrics for each county.
+print("Step 1: Aggregating core sales statistics by county...")
+
+# We group by county and calculate total sales and price volatility.
+county_sales_summary = df_new.groupby('County').agg(
+    total_sales_count=('DOL Vehicle ID', 'nunique'),
+    sale_price_volatility=('Sale Price', 'std')
+)
+
+# --- Step 2: Calculate the BEV vs. PHEV Ratio ---
+# To get the consumer preference ratio, we need to count BEVs and PHEVs separately.
+# A pivot table (or crosstab) is the most efficient way to do this.
+print("Step 2: Calculating BEV vs. PHEV counts for consumer preference ratio...")
+bev_phev_counts = pd.crosstab(
+    index=df_new['County'],
+    columns=df_new['Clean Alternative Fuel Vehicle Type']
+)
+# Rename for clarity
+bev_phev_counts.rename(columns={
+    'Battery Electric Vehicle (BEV)': 'BEV_count',
+    'Plug-in Hybrid Electric Vehicle (PHEV)': 'PHEV_count'
+}, inplace=True)
+
+# Merge this back into our main summary table.
+county_sales_summary = pd.merge(county_sales_summary, bev_phev_counts, on='County', how='left')
+
+
+# --- Step 3: Merge in External Demographic and Infrastructure Data ---
+# Now, we'll enrich our sales data with the external datasets.
+print("Step 3: Merging in population, income, and charging station data...")
+
+# Merge demographic data
+# IMPORTANT: Ensure column names like 'County', 'Population', 'Median_Household_income' match your files exactly.
+county_sales_summary = pd.merge(
+    county_sales_summary,
+    county_population_and_median_income[['County', 'Population', 'Median_Household_income']],
+    on='County',
+    how='left'
+)
+
+# Merge charging station data
+# IMPORTANT: Ensure column names like 'County', 'total_stations' match your file exactly.
+county_sales_summary = pd.merge(
+    county_sales_summary,
+    charging_station_data[['County', 'total_stations']],
+    on='County',
+    how='left'
+)
+
+
+# --- Step 4: Engineer the Final, Normalized Features for the Model ---
+# With all the raw data in one place, we can now calculate our final model features.
+print("Step 4: Engineering the final normalized features...")
+
+# Feature 1: Adoption Rate
+county_sales_summary['sales_per_1000_residents'] = \
+    (county_sales_summary['total_sales_count'] / county_sales_summary['Population']) * 1000
+
+# Feature 2: Infrastructure Score
+county_sales_summary['stations_per_1000_residents'] = \
+    (county_sales_summary['total_stations'] / county_sales_summary['Population']) * 1000
+
+# Feature 3: Consumer Preference Ratio
+# We add 1 to the denominator to avoid division-by-zero errors for counties with no PHEV sales.
+county_sales_summary['BEV_to_PHEV_sales_ratio'] = \
+    county_sales_summary['BEV_count'] / (county_sales_summary['PHEV_count'] + 1)
+
+
+# --- Step 5: Finalize the DataFrame for Modeling and Interpretation ---
+# Our 'county_sales_summary' DataFrame is now our complete, feature-rich master table.
+# The 'County' name is stored in the DataFrame's index.
+print("Step 5: Finalizing the master summary and feature set...")
+
+# We will keep this master table for our final analysis and mapping.
+master_summary_df = county_sales_summary.copy()
+
+# Now, we select only the numeric columns that will be used as features in our K-Means model.
+# This is the DataFrame we will actually pass to the clustering algorithm.
+feature_columns = [
+    'sales_per_1000_residents',
+    'sale_price_volatility',
+    'BEV_to_PHEV_sales_ratio',
+    'Median_Household_income',
+    'stations_per_1000_residents'
+]
+
+features_for_model_df = master_summary_df[feature_columns].copy()
+
+# Handle any potential missing values that may have resulted from merges or calculations
+features_for_model_df.fillna(0, inplace=True)
+
+print("\n--- Master Summary DataFrame (with County Index) ---")
+print(master_summary_df.head())
+
+print("\n--- Features-Only DataFrame (for Model Input) ---")
+print(features_for_model_df.head())
+print(f"\nDataFrame is ready for modeling with {len(features_for_model_df)} counties and {len(features_for_model_df.columns)} features.")
+
+#%%
+features_for_model_df.to_excel(r"C:\Users\devdu\Desktop\DATASETS\WASHINGTON STTATE\New dataset\df_new\EDA\KNN_READY.xlsx")
+#%%
+import pandas as pd
+from sklearn.cluster import KMeans
+from sklearn.preprocessing import StandardScaler
+from sklearn.metrics import silhouette_score
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+# --- AIM OF THE CODE ---
+# To perform K-Means clustering on our feature-engineered county data to create
+# actionable, data-driven strategic segments.
+
+# This script assumes you have the following DataFrames from the previous step:
+# 1. master_summary_df: The full summary table with County as the index.
+# 2. features_for_model_df: The numeric-only features for the model.
+
+# --- Step 1: Data Scaling ---
+# K-Means is a distance-based algorithm. It's essential to scale our features
+# so that one feature (like Median_Household_income) doesn't dominate the others.
+print("--- Step 1: Scaling Features ---")
+scaler = StandardScaler()
+features_scaled = scaler.fit_transform(features_for_model_df)
+
+# Create a DataFrame with the scaled features for easier use
+df_scaled = pd.DataFrame(features_scaled, index=features_for_model_df.index, columns=features_for_model_df.columns)
+print("Features have been scaled successfully.")
+
+
+# --- Step 2: Finding the Optimal Number of Clusters (k) ---
+# We will use two methods to make a robust, data-driven decision for 'k'.
+print("\n--- Step 2: Determining the Optimal 'k' ---")
+
+# Method A: The Elbow Method
+print("Running the Elbow Method...")
+inertia = []
+k_range = range(2, 11)
+for k in k_range:
+    kmeans = KMeans(n_clusters=k, random_state=42, n_init=10)
+    kmeans.fit(df_scaled)
+    inertia.append(kmeans.inertia_)
+
+# Plotting the Elbow Method results
+plt.figure(figsize=(10, 6))
+sns.lineplot(x=k_range, y=inertia, marker='o')
+plt.title('Elbow Method for Optimal k', fontsize=16)
+plt.xlabel('Number of Clusters (k)', fontsize=12)
+plt.ylabel('Inertia', fontsize=12)
+plt.xticks(k_range)
+plt.grid(True)
+plt.show()
+
+# Method B: The Silhouette Score
+print("Running the Silhouette Score Analysis...")
+silhouette_scores = []
+for k in k_range:
+    kmeans = KMeans(n_clusters=k, random_state=42, n_init=10)
+    kmeans.fit(df_scaled)
+    score = silhouette_score(df_scaled, kmeans.labels_)
+    silhouette_scores.append(score)
+
+# Plotting the Silhouette Score results
+plt.figure(figsize=(10, 6))
+sns.lineplot(x=k_range, y=silhouette_scores, marker='o')
+plt.title('Silhouette Score for Optimal k', fontsize=16)
+plt.xlabel('Number of Clusters (k)', fontsize=12)
+plt.ylabel('Silhouette Score', fontsize=12)
+plt.xticks(k_range)
+plt.grid(True)
+plt.show()
+
+#%%
+# --- Step 3: Run the Final K-Means Model ---
+# Based on our previous work and a likely confirmation from the plots,
+# we will choose k=4 as our final number of clusters.
+print("\n--- Step 3: Running Final Model with k=4 ---")
+final_k = 4
+kmeans = KMeans(n_clusters=final_k, random_state=42, n_init=10)
+kmeans.fit(df_scaled)
+
+# Get the cluster labels for each county
+cluster_labels = kmeans.labels_
+print(f"Successfully clustered the {len(df_scaled)} counties into {final_k} segments.")
+
+
+#--- Step 4: Map and Analyze the Results ---
+# This is where we make the model's output interpretable.
+print("\n--- Step 4: Mapping and Analyzing Cluster Profiles ---")
+
+# Add the cluster labels as a new column to our master summary DataFrame.
+master_summary_df['Cluster'] = cluster_labels
+
+# Analyze the statistical profile of each cluster.
+# We group by the new 'Cluster' column and calculate the mean for each feature.
+# This tells us the "persona" of each cluster.
+cluster_profiles = master_summary_df.groupby('Cluster').mean()
+
+print("\n--- Statistical Profile of Each Cluster (Mean Values) ---")
+print(cluster_profiles)
+
+print("\n--- Count of Counties in Each Cluster ---")
+print(master_summary_df['Cluster'].value_counts())
+
+    # --- Final Step: Save the Results ---
+    # This final, clustered DataFrame is a key project deliverable.
+    # master_summary_df.to_csv('county_segments_final.csv')
+    # print("\nSuccessfully saved final county segments to CSV.")
+#%%
+
+#%%
+import pandas as pd
+from sklearn.cluster import KMeans
+from sklearn.preprocessing import StandardScaler
+from sklearn.metrics import silhouette_score
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+# --- AIM OF THE CODE ---
+# To perform K-Means clustering on our feature-engineered county data to create
+# actionable, data-driven strategic segments.
+
+# This script assumes you have the following DataFrames from the previous step:
+# 1. master_summary_df: The full summary table with County as the index.
+# 2. features_for_model_df: The numeric-only features for the model.
+
+# --- Step 1: Data Scaling ---
+# K-Means is a distance-based algorithm. It's essential to scale our features
+# so that one feature (like Median_Household_income) doesn't dominate the others.
+print("--- Step 1: Scaling Features ---")
+scaler = StandardScaler()
+features_scaled = scaler.fit_transform(features_for_model_df)
+
+# Create a DataFrame with the scaled features for easier use
+df_scaled = pd.DataFrame(features_scaled, index=features_for_model_df.index, columns=features_for_model_df.columns)
+print("Features have been scaled successfully.")
+
+
+# --- Step 2: Finding the Optimal Number of Clusters (k) ---
+# We will use two methods to make a robust, data-driven decision for 'k'.
+print("\n--- Step 2: Determining the Optimal 'k' ---")
+
+# Method A: The Elbow Method
+print("Running the Elbow Method...")
+inertia = []
+k_range = range(2, 11)
+for k in k_range:
+    kmeans = KMeans(n_clusters=k, random_state=42, n_init=10)
+    kmeans.fit(df_scaled)
+    inertia.append(kmeans.inertia_)
+
+# Plotting the Elbow Method results
+plt.figure(figsize=(10, 6))
+sns.lineplot(x=k_range, y=inertia, marker='o')
+plt.title('Elbow Method for Optimal k', fontsize=16)
+plt.xlabel('Number of Clusters (k)', fontsize=12)
+plt.ylabel('Inertia', fontsize=12)
+plt.xticks(k_range)
+plt.grid(True)
+plt.show()
+
+# Method B: The Silhouette Score
+print("Running the Silhouette Score Analysis...")
+silhouette_scores = []
+for k in k_range:
+    kmeans = KMeans(n_clusters=k, random_state=42, n_init=10)
+    kmeans.fit(df_scaled)
+    score = silhouette_score(df_scaled, kmeans.labels_)
+    silhouette_scores.append(score)
+
+# Plotting the Silhouette Score results
+plt.figure(figsize=(10, 6))
+sns.lineplot(x=k_range, y=silhouette_scores, marker='o')
+plt.title('Silhouette Score for Optimal k', fontsize=16)
+plt.xlabel('Number of Clusters (k)', fontsize=12)
+plt.ylabel('Silhouette Score', fontsize=12)
+plt.xticks(k_range)
+plt.grid(True)
+plt.show()
+
+
+#
+#%%
+ #--- Step 3: Run the Final K-Means Model ---
+# Based on the Silhouette Score, which is the more robust metric,
+# we will choose k=5 as our final number of clusters.
+print("\n--- Step 3: Running Final Model with k=5 ---")
+final_k = 4
+kmeans = KMeans(n_clusters=final_k, random_state=42, n_init=10)
+kmeans.fit(df_scaled)
+
+# Get the cluster labels for each county
+cluster_labels = kmeans.labels_
+print(f"Successfully clustered the {len(df_scaled)} counties into {final_k} segments.")
+
+
+# --- Step 4: Map and Analyze the Results ---
+# This is where we make the model's output interpretable.
+print("\n--- Step 4: Mapping and Analyzing Cluster Profiles ---")
+
+# Add the cluster labels as a new column to our master summary DataFrame.
+master_summary_df['Cluster'] = cluster_labels
+
+# --- DATA TYPE CORRECTION (THE FIX) ---
+# Before aggregating, we must ensure all feature columns are numeric.
+# This prevents the 'agg function failed' TypeError.
+print("\nEnsuring all feature columns are numeric before analysis...")
+numeric_cols = [
+    'total_sales_count', 'sale_price_volatility', 'BEV_count', 'PHEV_count',
+    'Population', 'Median_Household_income', 'total_stations',
+    'sales_per_1000_residents', 'stations_per_1000_residents',
+    'BEV_to_PHEV_sales_ratio'
+]
+for col in numeric_cols:
+    # Use errors='coerce' to turn any non-numeric values into NaN
+    master_summary_df[col] = pd.to_numeric(master_summary_df[col], errors='coerce')
+
+# It's good practice to fill any NaNs that might have been created
+master_summary_df.fillna(0, inplace=True)
+
+
+# Analyze the statistical profile of each cluster.
+# We group by the new 'Cluster' column and calculate the mean for each feature.
+# This tells us the "persona" of each cluster.
+# THE FIX: Add numeric_only=True to ignore non-numeric columns like 'County'.
+cluster_profiles = master_summary_df.groupby('Cluster').mean(numeric_only=True)
+
+print("\n--- Statistical Profile of Each Cluster (Mean Values) ---")
+print(cluster_profiles)
+
+print("\n--- Count of Counties in Each Cluster ---")
+print(master_summary_df['Cluster'].value_counts())
+
+# --- Final Step: Save the Results ---
+# This final, clustered DataFrame is a key project deliverable.
+# master_summary_df.to_csv('county_segments_final.csv')
+# print("\nSuccessfully saved final county segments to CSV.")
+
+
+#%%
+master_summary_df.to_excel(r"C:\Users\devdu\Desktop\DATASETS\WASHINGTON STTATE\New dataset\df_new\EDA\k=4,CLUSTERED_SUMMARY_DF_NEW.xlsx")
+#%%
+df_new.columns
+#%%
+df_new['Make'].value_counts(normalize=True)
+#%%
+df_new['Make'].value_counts(normalize=True).plot(kind='scatter', x='Make', y='Make')
+#%%
+df_new.sort_values(by=['Sale Price'], ascending=False, inplace=True)
+#%%
+df_new
+#%%
+import matplotlib.pyplot as plt
+import numpy as np
+plt.plot(np.log(df_new['Sale Price']))
+#%%
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.stats import norm
+
+# Step 1: Take log of your data (avoid log(0))
+data = df_new['Sale Price']
+log_data = np.log1p(data)   # log(1 + x), safer if 0 exists
+
+# Step 2: Fit normal distribution to log-data
+mu, std = norm.fit(log_data)
+
+# Step 3: Plot histogram of log-data, normalized
+plt.hist(log_data, bins=30, density=True, alpha=0.6, color='skyblue')
+
+# Step 4: Plot fitted normal PDF
+xmin, xmax = plt.xlim()
+x = np.linspace(xmin, xmax, 1000)
+p = norm.pdf(x, mu, std)
+plt.plot(x, p, 'r', linewidth=2)
+
+plt.title("Log-transformed Sale Price with Normal Fit")
+plt.xlabel("log(Sale Price)")
+plt.ylabel("Density")
+plt.show()
+
+#%%
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.stats import norm
+
+mu, sigma = 0, 1   # mean and standard deviation
+x = np.linspace(-4, 4, 1000)
+y = norm.pdf(x, mu, sigma)
+
+plt.plot(x, y, 'b', linewidth=2)
+plt.title("Standard Normal Distribution")
+plt.xlabel("x")
+plt.ylabel("Probability Density")
+plt.show()
+
+#%%
+import pandas as pd
+#df_new
+df_final=pd.read_csv(r"C:\Users\devdu\Desktop\DATASETS\WASHINGTON STTATE\New dataset\SQL\df_new_imputed.csv")
+df_stations=pd.read_excel(r"C:\Users\devdu\Desktop\EV_CHARGING_STATIONS with COUNTY(Revers-geo coding method.xlsx")
+#%%
+df_stations=df_stations[df_stations['open_date'].notnull()]
+#%%
+df_stations
+#%%
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+# --- AIM OF THE CODE ---
+# To analyze the time-series correlation between the growth of EV charging
+# infrastructure and the growth of new EV sales in Washington state.
+
+# --- Step 1: Prepare Datasets ---
+# This script now assumes you have two DataFrames already loaded in your environment:
+# 1. df_final: Your main, purified sales dataset.
+# 2. df_stations: Your dataset of charging stations, including a verified 'Open Date' column.
+
+print("--- Step 1: Preparing Data ---")
+# Convert date columns to datetime objects, coercing any errors
+df_final['Sale Date'] = pd.to_datetime(df_final['Sale Date'], errors='coerce')
+df_stations['open_date'] = pd.to_datetime(df_stations['open_date'], errors='coerce')
+
+# Drop any rows where dates could not be parsed
+df_final.dropna(subset=['Sale Date'], inplace=True)
+df_stations.dropna(subset=['open_date'], inplace=True)
+print("Date columns converted successfully.")
+
+
+# --- Step 2: Create Monthly Time Series for EV Sales ---
+print("\n--- Step 2: Aggregating EV Sales by Month ---")
+monthly_sales = df_final.set_index('Sale Date')['DOL Vehicle ID'].resample('M').nunique().reset_index()
+monthly_sales.rename(columns={'Sale Date': 'month', 'DOL Vehicle ID': 'new_ev_sales'}, inplace=True)
+
+
+# --- Step 3: Create Monthly Time Series for Charging Stations ---
+print("\n--- Step 3: Aggregating Charging Stations by Month ---")
+# First, count the number of NEW stations opened each month
+# We use .size() to count rows in each monthly group.
+new_stations_monthly = df_stations.set_index('open_date').resample('M').size().reset_index(name='new_stations_opened')
+new_stations_monthly.rename(columns={'open_date': 'month'}, inplace=True)
+
+# CRITICAL: Now, calculate the CUMULATIVE total of stations over time
+new_stations_monthly['cumulative_stations'] = new_stations_monthly['new_stations_opened'].cumsum()
+
+
+# --- Step 4: Merge the Two Time Series ---
+print("\n--- Step 4: Merging Sales and Infrastructure Data ---")
+df_timeseries = pd.merge(monthly_sales, new_stations_monthly[['month', 'cumulative_stations']], on='month', how='left')
+
+# Forward-fill any gaps in station data (assumes no stations opened in a month)
+df_timeseries['cumulative_stations'].fillna(method='ffill', inplace=True)
+df_timeseries.dropna(inplace=True) # Drop any initial rows before station data begins
+
+
+# --- Step 5: Calculate and Display the Correlation ---
+print("\n--- Step 5: Calculating Correlation ---")
+correlation = df_timeseries['new_ev_sales'].corr(df_timeseries['cumulative_stations'])
+print(f"The Pearson correlation coefficient between monthly EV sales and cumulative charging stations is: {correlation:.4f}")
+print("A value close to 1.0 indicates a very strong positive correlation.")
+
+
+# --- Step 6: Visualize the Relationship ---
+print("\n--- Step 6: Generating Visualization ---")
+sns.set_theme(style="whitegrid")
+fig, ax1 = plt.subplots(figsize=(16, 9))
+
+# Plotting monthly sales on the primary y-axis (ax1)
+color = 'tab:blue'
+ax1.set_xlabel('Month', fontsize=14)
+ax1.set_ylabel('New EV Sales per Month', color=color, fontsize=14)
+ax1.plot(df_timeseries['month'], df_timeseries['new_ev_sales'], color=color, marker='o', linestyle='-', label='EV Sales')
+ax1.tick_params(axis='y', labelcolor=color)
+
+# Creating a secondary y-axis for cumulative stations (ax2)
+ax2 = ax1.twinx()
+color = 'tab:red'
+ax2.set_ylabel('Total Cumulative Charging Stations', color=color, fontsize=14)
+ax2.plot(df_timeseries['month'], df_timeseries['cumulative_stations'], color=color, marker='x', linestyle='--', label='Charging Stations')
+ax2.tick_params(axis='y', labelcolor=color)
+
+# Final formatting
+plt.title('EV Sales Growth vs. Charging Infrastructure Rollout in Washington', fontsize=20, fontweight='bold', pad=20)
+fig.tight_layout()
+plt.show()
+
+
+#%%
+df_timeseries
+#%%
+df_timeseries.to_excel(r"C:\Users\devdu\Desktop\DATASETS\WASHINGTON STTATE\New dataset\df_new\Modeling and analysis\SLAES AND CHARGINGG STATION CORELATION.xlsx")
+#%%
+df_timeseries
+#%%
+
+
+
+# --- Step 2: Define a Function to Calculate Correlation for a Single County ---
+# Because we are repeating the same logic for each county, the best practice
+# is to enclose it in a reusable function.
+def calculate_county_correlation(sales_df, stations_df):
+    """
+    Calculates the sales vs. infrastructure correlation for a single county's data.
+    """
+    # Create monthly time series for sales
+    monthly_sales = sales_df.set_index('Sale Date')['DOL Vehicle ID'].resample('M').nunique().reset_index()
+    monthly_sales.rename(columns={'Sale Date': 'month', 'DOL Vehicle ID': 'new_ev_sales'}, inplace=True)
+
+    # Create monthly time series for cumulative stations
+    new_stations_monthly = stations_df.set_index('open_date').resample('M').size().reset_index(name='new_stations_opened')
+    new_stations_monthly.rename(columns={'open_date': 'month'}, inplace=True)
+    new_stations_monthly['cumulative_stations'] = new_stations_monthly['new_stations_opened'].cumsum()
+
+    # Merge the two time series
+    df_timeseries = pd.merge(monthly_sales, new_stations_monthly[['month', 'cumulative_stations']], on='month', how='left')
+    df_timeseries['cumulative_stations'].fillna(method='ffill', inplace=True)
+    df_timeseries.dropna(inplace=True)
+
+    # Calculate correlation, handle cases with too little data
+    if len(df_timeseries) < 3:
+        return None # Not enough data points to calculate a meaningful correlation
+
+    correlation = df_timeseries['new_ev_sales'].corr(df_timeseries['cumulative_stations'])
+    return correlation
+
+
+# --- Step 3: Iterate Through Each County and Calculate Correlation ---
+print("\n--- Step 3: Calculating Correlation for Each County ---")
+correlation_results = []
+counties = df_final['County'].unique()
+
+for county in counties:
+    # Filter data for the current county
+    county_sales = df_final[df_final['County'] == county]
+    county_stations = df_stations[df_stations['County'] == county]
+
+    if not county_stations.empty:
+        corr = calculate_county_correlation(county_sales, county_stations)
+        correlation_results.append({'County': county, 'correlation_score': corr})
+        print(f"Processed {county}: Correlation = {corr:.4f}" if corr is not None else f"Processed {county}: Not enough data")
+
+# --- Step 4: Create a Final Summary DataFrame ---
+print("\n--- Step 4: Creating Final Correlation Summary Table ---")
+df_correlation_summary = pd.DataFrame(correlation_results).dropna()
+df_correlation_summary = df_correlation_summary.sort_values(by='correlation_score', ascending=False)
+
+print(df_correlation_summary)
+
+
+# --- Step 5 (Next Step): Visualize the Results ---
+# The next step would be to merge this 'df_correlation_summary' with our
+# 'master_summary_df' (which contains the Cluster labels).
+# We can then create a bar chart in Power BI or Python to see if the
+# correlation scores are systematically higher for our "Follower" cluster.
+# For example:
+# final_analysis_df = pd.merge(master_summary_df, df_correlation_summary, on='County')
+# sns.barplot(data=final_analysis_df, x='Cluster', y='correlation_score')
+# plt.show()
+
+
+#%%
+df_correlation_summary
+#%%
+df_clustered_summary = pd.read_excel(r"C:\Users\devdu\Desktop\DATASETS\WASHINGTON STTATE\New dataset\df_new\Modeling and analysis\k=4,CLUSTERED_SUMMARY_DF_NEW.xlsx")
+#%%
+df_clustered_summary
+#%%
+
+
+# --- AIM OF THE CODE ---
+# To analyze the time-series correlation between infrastructure and sales,
+# aggregated at the STRATEGIC CLUSTER level.
+
+# --- Step 1: Load and Prepare Datasets ---
+# This script assumes you have the following DataFrames already loaded:
+# 1. df_final: Your main, purified sales dataset.
+# 2. df_stations: Your dataset of charging stations.
+# 3. df_clustered_summary: Your table with County names and their assigned Cluster label.
+#    For this example, we will load it from the CSV you provided.
+
+# Prepare date columns, same as before
+df_final['Sale Date'] = pd.to_datetime(df_final['Sale Date'], errors='coerce')
+df_stations['open_date'] = pd.to_datetime(df_stations['open_date'], errors='coerce')
+df_final.dropna(subset=['Sale Date'], inplace=True)
+df_stations.dropna(subset=['open_date'], inplace=True)
+
+# CRITICAL: Add the Cluster label to our main transactional dataframes
+df_final = pd.merge(df_final, df_clustered_summary[['County', 'Cluster']], on='County', how='left')
+df_stations = pd.merge(df_stations, df_clustered_summary[['County', 'Cluster']], on='County', how='left')
+df_final.dropna(subset=['Cluster'], inplace=True) # Ensure all sales have a cluster
+df_stations.dropna(subset=['Cluster'], inplace=True) # Ensure all stations have a cluster
+df_final['Cluster'] = df_final['Cluster'].astype(int)
+df_stations['Cluster'] = df_stations['Cluster'].astype(int)
+
+print("Data successfully merged with Cluster labels.")
+
+
+# --- Step 2: Reuse Our Correlation Function ---
+# Our previous function works perfectly for this task. We'll just call it on
+# data that has been filtered by cluster instead of by county.
+def calculate_correlation(sales_df, stations_df):
+    """Calculates the sales vs. infrastructure correlation for a given dataset."""
+    monthly_sales = sales_df.set_index('Sale Date')['DOL Vehicle ID'].resample('M').nunique().reset_index()
+    monthly_sales.rename(columns={'Sale Date': 'month', 'DOL Vehicle ID': 'new_ev_sales'}, inplace=True)
+
+    new_stations_monthly = stations_df.set_index('open_date').resample('M').size().reset_index(name='new_stations_opened')
+    new_stations_monthly.rename(columns={'open_date': 'month'}, inplace=True)
+    new_stations_monthly['cumulative_stations'] = new_stations_monthly['new_stations_opened'].cumsum()
+
+    df_timeseries = pd.merge(monthly_sales, new_stations_monthly[['month', 'cumulative_stations']], on='month', how='left')
+    df_timeseries['cumulative_stations'].fillna(method='ffill', inplace=True)
+    df_timeseries.dropna(inplace=True)
+
+    if len(df_timeseries) < 3: return None
+    return df_timeseries['new_ev_sales'].corr(df_timeseries['cumulative_stations'])
+
+
+# --- Step 3: Iterate Through Each CLUSTER and Calculate Correlation ---
+print("\n--- Step 3: Calculating Correlation for Each Strategic Cluster ---")
+cluster_correlation_results = []
+cluster_ids = sorted(df_final['Cluster'].unique())
+
+for cluster_id in cluster_ids:
+    # Filter data for the current cluster
+    cluster_sales = df_final[df_final['Cluster'] == cluster_id]
+    cluster_stations = df_stations[df_stations['Cluster'] == cluster_id]
+
+    if not cluster_stations.empty:
+        corr = calculate_correlation(cluster_sales, cluster_stations)
+        cluster_correlation_results.append({'Cluster': cluster_id, 'correlation_score': corr})
+        print(f"Processed Cluster {cluster_id}: Correlation = {corr:.4f}" if corr is not None else f"Processed Cluster {cluster_id}: Not enough data")
+
+# --- Step 4: Create and Display the Final Summary DataFrame ---
+print("\n--- Step 4: Creating Final Cluster Correlation Summary ---")
+df_cluster_correlation = pd.DataFrame(cluster_correlation_results).dropna()
+
+# Add our strategic segment names for a client-ready output
+cluster_names = {
+    1: 'Pacesetters',
+    3: 'High-Potential Followers',
+    0: 'Emerging Laggers',
+    2: 'Outlier'
+}
+df_cluster_correlation['Segment_Name'] = df_cluster_correlation['Cluster'].map(cluster_names)
+df_cluster_correlation = df_cluster_correlation.sort_values(by='correlation_score', ascending=False)
+
+print(df_cluster_correlation[['Segment_Name', 'Cluster', 'correlation_score']])
+
+
+# --- Step 5: Visualize the Results for a Powerful Insight ---
+print("\n--- Step 5: Generating Final Visualization ---")
+plt.figure(figsize=(12, 8))
+sns.barplot(
+    data=df_cluster_correlation,
+    x='Segment_Name',
+    y='correlation_score',
+    order=['High-Potential Followers', 'Pacesetters', 'Emerging Laggers', 'Outlier'],
+    palette={'High-Potential Followers':'green', 'Pacesetters':'blue', 'Emerging Laggers':'orange', 'Outlier':'grey'}
+)
+plt.title('Sales vs. Infrastructure Correlation by Strategic Segment', fontsize=18, fontweight='bold')
+plt.xlabel('Strategic Segment', fontsize=14)
+plt.ylabel('Correlation Score', fontsize=14)
+plt.ylim(0, 1.0)
+plt.axhline(y=0.8, color='red', linestyle='--', label='Strong Correlation Threshold (0.8)')
+plt.legend()
+plt.show()
+
+#%%
+df_final
+#%%
+import pandas as pd
+
+# --- AIM OF THE CODE ---
+# To create a single, plot-ready DataFrame containing the monthly count of
+# new EV sales and new charging station openings for each strategic cluster.
+
+# --- Step 1: Load and Prepare Datasets ---
+# This script assumes you have the following DataFrames already loaded:
+# 1. df_final: Your main, purified sales dataset.
+# 2. df_stations: Your dataset of charging stations with a verified 'Open Date' column.
+# 3. df_clustered_summary: Your table with County names and their assigned Cluster label.
+print("--- Step 1: Loading and Preparing Data ---")
+
+
+
+# --- Step 2: Add Cluster Labels to Transactional Data ---
+# We merge the cluster information into our main sales and station dataframes.
+# This allows us to group our analysis by our strategic segments.
+print("\n--- Step 2: Merging Cluster labels into datasets ---")
+df_final_clustered = pd.merge(df_final, df_clustered_summary[['County', 'Cluster']], on='County', how='left')
+df_stations_clustered = pd.merge(df_stations, df_clustered_summary[['County', 'Cluster']], on='County', how='left')
+
+# Drop any records that couldn't be mapped to a cluster
+df_final_clustered.dropna(subset=['Cluster'], inplace=True)
+df_stations_clustered.dropna(subset=['Cluster'], inplace=True)
+df_final_clustered['Cluster'] = df_final_clustered['Cluster'].astype(int)
+df_stations_clustered['Cluster'] = df_stations_clustered['Cluster'].astype(int)
+print("Merge successful.")
+
+
+# --- Step 3: Aggregate EV Sales by Cluster and Month ---
+print("\n--- Step 3: Aggregating EV Sales by Cluster and Month ---")
+monthly_sales_by_cluster = df_final_clustered.groupby('Cluster').apply(
+    lambda x: x.set_index('Sale Date')['DOL Vehicle ID'].resample('M').nunique()
+).reset_index()
+monthly_sales_by_cluster.rename(columns={'Sale Date': 'month', 'DOL Vehicle ID': 'new_ev_sales'}, inplace=True)
+
+
+# --- Step 4: Aggregate Station Openings by Cluster and Month ---
+print("\n--- Step 4: Aggregating Station Openings by Cluster and Month ---")
+monthly_stations_by_cluster = df_stations_clustered.groupby('Cluster').apply(
+    lambda x: x.set_index('open_date').resample('M').size()
+).reset_index(name='new_stations_opened')
+monthly_stations_by_cluster.rename(columns={'level_1': 'month'}, inplace=True)
+
+
+# --- Step 5: Merge into a Final Plot-Ready DataFrame ---
+print("\n--- Step 5: Merging aggregated data into final dataset ---")
+# We perform an 'outer' merge to ensure we keep all months from both datasets
+df_plot_ready = pd.merge(
+    monthly_sales_by_cluster,
+    monthly_stations_by_cluster,
+    on=['Cluster', 'month'],
+    how='outer'
+)
+
+# Replace any NaN values that result from the merge with 0
+df_plot_ready.fillna(0, inplace=True)
+
+# Add our strategic segment names for easier plotting and interpretation
+cluster_names = {
+    1: 'Pacesetters',
+    3: 'High-Potential Followers',
+    0: 'Emerging Laggers',
+    2: 'Outlier'
+}
+df_plot_ready['Segment_Name'] = df_plot_ready['Cluster'].map(cluster_names)
+
+# Sort the data for clean plotting
+df_plot_ready = df_plot_ready.sort_values(by=['Segment_Name', 'month'])
+
+
+# --- Final Verification ---
+print("\n--- Final Plot-Ready DataFrame ---")
+print(df_plot_ready.head())
+print("\nThis dataset is now ready for visualization in Power BI or Python.")
+#%%
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+# --- AIM OF THE CODE ---
+# To create three separate, plot-ready DataFrames for each strategic cluster
+# (Pacesetters, Followers, Laggers), detailing the monthly growth of both
+# new EV sales and the cumulative charging station network. We will also
+# generate plots for immediate visual comparison.
+
+# --- Step 1: Prepare Datasets & Merge Cluster Labels ---
+# This script assumes 'df_final', 'df_stations', and 'df_clustered_summary'
+# are already loaded into your Jupyter Notebook.
+print("--- Step 1: Preparing Data and Merging Cluster Labels ---")
+
+# Ensure date columns are in the correct format
+df_final['Sale Date'] = pd.to_datetime(df_final['Sale Date'], errors='coerce')
+df_stations['open_date'] = pd.to_datetime(df_stations['open_date'], errors='coerce')
+df_final.dropna(subset=['Sale Date'], inplace=True)
+df_stations.dropna(subset=['open_date'], inplace=True)
+
+# Add the Cluster label to our main transactional dataframes
+df_final_clustered = pd.merge(df_final, df_clustered_summary[['County', 'Cluster']], on='County', how='left')
+df_stations_clustered = pd.merge(df_stations, df_clustered_summary[['County', 'Cluster']], on='County', how='left')
+
+# Drop any records that couldn't be mapped to a cluster
+df_final_clustered.dropna(subset=['Cluster'], inplace=True)
+df_stations_clustered.dropna(subset=['Cluster'], inplace=True)
+df_final_clustered['Cluster'] = df_final_clustered['Cluster'].astype(int)
+df_stations_clustered['Cluster'] = df_stations_clustered['Cluster'].astype(int)
+print("Data successfully merged with Cluster labels.")
+
+
+# --- Step 2: Define a Function to Process Each Cluster ---
+# This reusable function will create the time-series DataFrame for any given cluster.
+def create_cluster_timeseries(cluster_id, sales_df, stations_df):
+    """Creates a monthly sales and cumulative stations DataFrame for a single cluster."""
+    # Filter data for the specific cluster
+    cluster_sales = sales_df[sales_df['Cluster'] == cluster_id]
+    cluster_stations = stations_df[stations_df['Cluster'] == cluster_id]
+
+    # Aggregate sales by month
+    monthly_sales = cluster_sales.set_index('Sale Date')['DOL Vehicle ID'].resample('M').nunique().reset_index()
+    monthly_sales.rename(columns={'Sale Date': 'month', 'DOL Vehicle ID': 'new_ev_sales'}, inplace=True)
+
+    # Aggregate NEW stations by month
+    new_stations_monthly = cluster_stations.set_index('open_date').resample('M').size().reset_index(name='new_stations_opened')
+    new_stations_monthly.rename(columns={'open_date': 'month'}, inplace=True)
+
+    # Calculate the CUMULATIVE total of stations
+    new_stations_monthly['cumulative_stations'] = new_stations_monthly['new_stations_opened'].cumsum()
+
+    # Merge into a final DataFrame
+    df_cluster_timeseries = pd.merge(monthly_sales, new_stations_monthly[['month', 'cumulative_stations']], on='month', how='left')
+    df_cluster_timeseries['cumulative_stations'].fillna(method='ffill', inplace=True)
+    df_cluster_timeseries.fillna(0, inplace=True) # Fill any remaining NaNs at the start with 0
+
+    return df_cluster_timeseries
+
+
+# --- Step 3: Create the Three Final Datasets ---
+# We will now call our function for each of our three core strategic clusters.
+print("\n--- Step 3: Creating Final Datasets for Each Cluster ---")
+
+# Using the correct cluster IDs from your 'k=4' file
+cluster_map = {
+    'Pacesetters': 1,
+    'High-Potential Followers': 3,
+    'Emerging Laggers': 0
+}
+
+# This dictionary will hold our three final DataFrames
+cluster_datasets = {}
+
+for name, cluster_id in cluster_map.items():
+    print(f"Processing {name} (Cluster {cluster_id})...")
+    cluster_datasets[name] = create_cluster_timeseries(cluster_id, df_final_clustered, df_stations_clustered)
+
+# You can now access each DataFrame like this:
+# pacesetters_df = cluster_datasets['Pacesetters']
+# followers_df = cluster_datasets['High-Potential Followers']
+# laggers_df = cluster_datasets['Emerging Laggers']
+
+print("\nSuccessfully created three time-series datasets:")
+for name, df in cluster_datasets.items():
+    print(f"- {name}: {len(df)} months of data")
+
+
+# --- Step 4: Create the Three Final Plots ---
+# We will create a separate, dual-axis plot for each cluster for a clear comparison.
+print("\n--- Step 4: Generating Comparison Plots ---")
+sns.set_theme(style="whitegrid")
+fig, axes = plt.subplots(3, 1, figsize=(16, 24), sharex=True)
+fig.suptitle('EV Sales vs. Infrastructure Growth by Strategic Segment', fontsize=24, fontweight='bold')
+
+for i, (name, df) in enumerate(cluster_datasets.items()):
+    ax1 = axes[i]
+
+    # Plotting sales on the primary y-axis
+    color = 'tab:blue'
+    ax1.set_ylabel('New EV Sales per Month', color=color, fontsize=12)
+    ax1.plot(df['month'], df['new_ev_sales'], color=color, marker='o', linestyle='-', markersize=4)
+    ax1.tick_params(axis='y', labelcolor=color)
+    ax1.set_title(f'Segment: {name}', fontsize=16, fontweight='bold')
+
+    # Creating a secondary y-axis for stations
+    ax2 = ax1.twinx()
+    color = 'tab:red'
+    ax2.set_ylabel('Total Cumulative Stations', color=color, fontsize=12)
+    ax2.plot(df['month'], df['cumulative_stations'], color=color, marker='x', linestyle='--', markersize=4)
+    ax2.tick_params(axis='y', labelcolor=color)
+
+axes[2].set_xlabel('Month', fontsize=14)
+plt.tight_layout(rect=[0, 0.03, 1, 0.96])
+plt.show()
+
+#%%
+final_export_df = pd.concat(cluster_datasets.values(), ignore_index=True)
+#final_export_df.to_excel(r"C:\Users\devdu\Desktop\DATASETS\WASHINGTON STTATE\New dataset\df_new\Modeling and analysis\Custer wise sale v/s stations.xlsx")
+#%%
+final_export_df
+#%%
+#final_export_df.to_excel(r"C:\Users\devdu\Desktop\DATASETS\WASHINGTON STTATE\New dataset\df_new\Modeling and analysis\Custer wise sale vs stations.xlsx")
+#%%
+df_historic_population = pd.read_excel(r"C:\Users\devdu\Desktop\DATASETS\WASHINGTON STTATE\New dataset\df_new\Modeling and analysis\County_popu_variation.xlsx")
+#%%
+
+
+# --- Step 1: Melt the population dataset ---
+df_pop_long = df_historic_population.melt(
+    id_vars=['County', 'Cluster'],
+    var_name='Year',
+    value_name='Population'
+)
+
+# Ensure Year is numeric
+df_pop_long['Year'] = pd.to_numeric(df_pop_long['Year'], errors='coerce')
+#%%
+# --- Step 2: Aggregate total population by Cluster + Year ---
+cluster_yearly_population = (
+    df_pop_long.groupby(['Cluster', 'Year'])['Population']
+    .sum()
+    .reset_index()
+    .rename(columns={'Population': 'total_population'})
+)
+
+print("Total yearly population per cluster calculated:")
+print(cluster_yearly_population.head())
+#%%
+df_leaders=pd.read_excel(r"C:\Users\devdu\Desktop\DATASETS\WASHINGTON STTATE\New dataset\df_new\Modeling and analysis\SALES VS STATIONS- LEADERS.xlsx")
+df_laggers=pd.read_excel(r"C:\Users\devdu\Desktop\DATASETS\WASHINGTON STTATE\New dataset\df_new\Modeling and analysis\SALES VS STATIONS- LAGGERS.xlsx")
+df_followers=pd.read_excel(r"C:\Users\devdu\Desktop\DATASETS\WASHINGTON STTATE\New dataset\df_new\Modeling and analysis\SALES VS STATIONS- FOLLOWERS.xlsx")
+#%%
+df_followers
+#%%
+cluster_dfs = {
+    'Leaders': df_leaders,
+    'Followers': df_followers,
+    'Laggers': df_laggers
+}
+
+cluster_id_map = {
+    'Leaders': 1,
+    'Followers': 3,
+    'Laggers': 0
+}
+
+# Extract Year from month
+for name, df in cluster_dfs.items():
+    df['Year'] = df['Month'].dt.year
+
+
+#%%
+df_followers
+#%%
+# --- Step 4: Normalize by total population ---
+for name, df in cluster_dfs.items():
+    cluster_id = cluster_id_map[name]
+
+    # Get population for this cluster
+    pop_data = cluster_yearly_population[cluster_yearly_population['Cluster'] == cluster_id]
+
+    # Merge with yearly population
+    df_merged = pd.merge(df, pop_data[['Year', 'total_population']], on='Year', how='left')
+
+    # Forward-fill missing population years
+    df_merged['total_population'].fillna(method='ffill', inplace=True)
+
+    # Create per-capita KPIs
+    df['New_ev_per_1000_residents'] = (df_merged['new_ev_sales'] / (df_merged['total_population'] + 1e-6)) * 1000
+    df['Cumulative_station_per_1000_residents'] = (df_merged['cumulative_stations'] / (df_merged['total_population'] + 1e-6)) * 1000
+
+    print(f"✅ Added per-1000 resident metrics to {name}")
+
+
+# --- Step 5: Verify ---
+print("\n--- Verification ---")
+print("Leaders sample:\n", df_leaders.head())
+print("Followers sample:\n", df_followers.head())
+print("Laggers sample:\n", df_laggers.head())
+#%%
+df_leaders.to_excel(r"C:\Users\devdu\Desktop\DATASETS\WASHINGTON STTATE\New dataset\df_new\Modeling and analysis\Normalized-SALES VS STATIONS- LEADERS- .xlsx")
+
+#%%
+df_followers.to_excel(r"C:\Users\devdu\Desktop\DATASETS\WASHINGTON STTATE\New dataset\df_new\Modeling and analysis\Normalized-SALES VS STATIONS- Followers .xlsx")
+#%%
+df_laggers.to_excel(r"C:\Users\devdu\Desktop\DATASETS\WASHINGTON STTATE\New dataset\df_new\Modeling and analysis\Normalized-SALES VS STATIONS-Laggers .xlsx")
+#%%
+.
+
+
+
+
+# Group by cluster and year → TOTAL population
+cluster_yearly_population = (
+    df_pop_long.groupby(['Cluster', 'Year'])['Population']
+    .sum()
+    .reset_index()
+    .rename(columns={'Population': 'total_population'})
+)
+
+print("Total yearly population per cluster calculated:")
+print(cluster_yearly_population.head())
+
+
+# --- Step 2: Prepare Cluster DataFrames ---
+cluster_dfs = {
+    'Leaders': df_leaders,
+    'Followers': df_followers,
+    'Laggers': df_laggers
+}
+
+cluster_id_map = {
+    'Leaders': 1,
+    'Followers': 3,
+    'Laggers': 0
+}
+
+for name, df in cluster_dfs.items():
+    df['Year'] = df['month'].dt.year
+
+
+# --- Step 3: Normalize Each Cluster Dataset ---
+print("\n--- Step 3: Normalizing Each Cluster DataFrame (per 1000 residents) ---")
+
+for name, df in cluster_dfs.items():
+    cluster_id = cluster_id_map[name]
+
+    # Population for this cluster
+    pop_data = cluster_yearly_population[cluster_yearly_population['Cluster'] == cluster_id]
+
+    # Merge
+    df_merged = pd.merge(df, pop_data[['Year', 'total_population']], on='Year', how='left')
+
+    # Forward-fill missing years
+    df_merged['total_population'].fillna(method='ffill', inplace=True)
+
+    # Add metrics
+    df['New_ev_per_1000_residents'] = (df_merged['new_ev_sales'] / (df_merged['total_population'] + 1e-6)) * 1000
+    df['Cumulative_station_per_1000_residents'] = (df_merged['cumulative_station'] / (df_merged['total_population'] + 1e-6)) * 1000
+
+    print(f"✅ Normalized metrics added for {name}")
+
+
+# --- Step 4: Verification ---
+print("\n--- Step 4: Verification ---")
+print("Leaders sample:\n", df_leaders.head())
+print("Followers sample:\n", df_followers.head())
+print("Laggers sample:\n", df_laggers.head())
+
+#%%
+import pandas as pd
+df_final=pd.read_excel(r"C:\Users\devdu\Desktop\DATASETS\WASHINGTON STTATE\New dataset\df_new\Data cleaning and imputation\df_new_imputed.xlsx")
+
+#%%
+df_stations=pd.read_excel(r"C:\Users\devdu\Desktop\DATASETS\WASHINGTON STTATE\New dataset\df_new\EV_CHARGING_STATIONS with COUNTY(Revers-geo coding method).xlsx")
+#%%
+df_clustered_summary=pd.read_excel(r"C:\Users\devdu\Desktop\DATASETS\WASHINGTON STTATE\New dataset\df_new\Modeling and analysis\k=4,CLUSTERED_SUMMARY_DF_NEW.xlsx")
+# are already loaded into your Jupyter Notebook.
+#%%
+df_stations
+#%%
+
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+# --- AIM OF THE CODE ---
+# To calculate a definitive, quantitative measure (Pearson correlation coefficient)
+# of the relationship between monthly EV sales and cumulative charging station growth
+# for each of our three core strategic clusters.
+
+# --- Step 1: Load and Prepare Datasets ---
+print("--- Step 1: Loading and Preparing Data ---")
+
+# This script assumes 'df_final', 'df_stations', and 'df_clustered_summary' are pre-loaded.
+
+# Prepare date columns
+df_final['Sale Date'] = pd.to_datetime(df_final['Sale Date'], errors='coerce')
+df_stations['open_date'] = pd.to_datetime(df_stations['open_date'], errors='coerce')
+df_final.dropna(subset=['Sale Date'], inplace=True)
+df_stations.dropna(subset=['open_date'], inplace=True)
+
+# Add Cluster labels to transactional dataframes
+df_final_clustered = pd.merge(df_final, df_clustered_summary[['County', 'Cluster']], on='County', how='left')
+df_stations_clustered = pd.merge(df_stations, df_clustered_summary[['County', 'Cluster']], on='County', how='left')
+df_final_clustered.dropna(subset=['Cluster'], inplace=True)
+df_stations_clustered.dropna(subset=['Cluster'], inplace=True)
+df_final_clustered['Cluster'] = df_final_clustered['Cluster'].astype(int)
+df_stations_clustered['Cluster'] = df_stations_clustered['Cluster'].astype(int)
+print("Data successfully merged with Cluster labels.")
+
+
+
+
+#%%
+# --- Step 2: Define a Reusable Correlation Function ---
+def calculate_correlation(sales_df, stations_df):
+    """Calculates the sales vs. infrastructure correlation for a given dataset."""
+    # Create monthly time series for sales and stations
+    monthly_sales = sales_df.set_index('Sale Date')['DOL Vehicle ID'].resample('M').nunique().reset_index()
+    monthly_sales.rename(columns={'Sale Date': 'month', 'DOL Vehicle ID': 'new_ev_sales'}, inplace=True)
+
+    new_stations_monthly = stations_df.set_index('open_date').resample('M').size().reset_index(name='new_stations_opened')
+    new_stations_monthly.rename(columns={'open_date': 'month'}, inplace=True)
+    new_stations_monthly['cumulative_stations'] = new_stations_monthly['new_stations_opened'].cumsum()
+
+    # Merge the time series
+    df_timeseries = pd.merge(monthly_sales, new_stations_monthly[['month', 'cumulative_stations']], on='month', how='left')
+    df_timeseries['cumulative_stations'].fillna(method='ffill', inplace=True)
+    df_timeseries.dropna(inplace=True)
+
+    # Calculate Pearson correlation
+    if len(df_timeseries) < 3: return None
+    return df_timeseries['new_ev_sales'].corr(df_timeseries['cumulative_stations'])
+
+
+# --- Step 3: Iterate Through Each CLUSTER and Calculate Correlation ---
+print("\n--- Step 3: Calculating Correlation for Each Strategic Cluster ---")
+cluster_correlation_results = []
+# Using the correct cluster IDs from your 'k=4' file
+cluster_map = {
+    'Pacesetters': 1,
+    'High-Potential Followers': 3,
+    'Emerging Laggers': 0,
+    'Outlier': 2
+}
+
+for name, cluster_id in cluster_map.items():
+    cluster_sales = df_final_clustered[df_final_clustered['Cluster'] == cluster_id]
+    cluster_stations = df_stations_clustered[df_stations_clustered['Cluster'] == cluster_id]
+
+    if not cluster_stations.empty:
+        corr = calculate_correlation(cluster_sales, cluster_stations)
+        cluster_correlation_results.append({'Segment_Name': name, 'Cluster': cluster_id, 'correlation_score': corr})
+        print(f"Processed {name}: Correlation = {corr:.4f}" if corr is not None else f"Processed {name}: Not enough data")
+
+# --- Step 4: Create and Display the Final Summary DataFrame ---
+print("\n--- Step 4: Displaying Final Cluster Correlation Summary ---")
+df_cluster_correlation = pd.DataFrame(cluster_correlation_results).dropna()
+df_cluster_correlation = df_cluster_correlation.sort_values(by='correlation_score', ascending=False)
+
+print(df_cluster_correlation[['Segment_Name', 'Cluster', 'correlation_score']])
+
+# --- Step 5: Visualize the Results ---
+plt.figure(figsize=(12, 8))
+sns.barplot(
+    data=df_cluster_correlation,
+    x='Segment_Name',
+    y='correlation_score',
+    order=['High-Potential Followers', 'Pacesetters', 'Emerging Laggers', 'Outlier'],
+    palette={'High-Potential Followers':'green', 'Pacesetters':'blue', 'Emerging Laggers':'orange', 'Outlier':'grey'}
+)
+plt.title('Sales vs. Infrastructure Correlation by Strategic Segment', fontsize=18, fontweight='bold')
+plt.xlabel('Strategic Segment', fontsize=14)
+plt.ylabel('Pearson Correlation Coefficient', fontsize=14)
+plt.ylim(0, 1.0)
+plt.axhline(y=0.8, color='red', linestyle='--', label='Strong Correlation Threshold (0.8)')
+plt.legend()
+plt.show()
+
+#%%
+df_cluster_correlation
+#%%
+df_clustered_summary
+#%%
+import numpy as np
+# --- AIM OF THE CODE ---
+# To calculate the general, statewide correlation between EV adoption and key
+# economic and infrastructure metrics, providing a high-level quantitative summary.
+
+# --- Step 1: Prepare the Dataset ---
+# This script assumes 'df_clustered_summary' is your final, feature-rich
+# county-level summary DataFrame, loaded from 'k=4,CLUSTERED_SUMMARY_DF_NEW.xlsx - Sheet1.csv'.
+print("--- Step 1: Preparing Data for Correlation Analysis ---")
+
+# For clarity, let's create a working copy
+df_corr_analysis = df_clustered_summary.copy()
+
+# --- Step 2: Engineer the Final Required KPI ---
+# Your request included 'EVs_Per_Station'. We will calculate this now.
+print("\n--- Step 2: Engineering 'EVs_Per_Station' KPI ---")
+
+# To avoid division by zero errors, we replace 0 stations with a very small number (or NaN)
+df_corr_analysis['total_stations_safe'] = df_corr_analysis['total_stations'].replace(0, np.nan)
+df_corr_analysis['EVs_Per_Station'] = df_corr_analysis['total_sales_count'] / df_corr_analysis['total_stations_safe']
+
+# Fill any resulting NaNs (from counties with 0 stations) with 0, as there is no "pressure"
+df_corr_analysis['EVs_Per_Station'].fillna(0, inplace=True)
+print("KPI 'EVs_Per_Station' created successfully.")
+
+
+# --- Step 3: Define the Relationships to Analyze ---
+# We will create a list of the specific variable pairs we want to test.
+print("\n--- Step 3: Defining the Analytical Pairs ---")
+correlation_pairs = [
+    ('sales_per_1000_residents', 'Median_Household_income'),
+    ('sales_per_1000_residents', 'stations_per_1000_residents'),
+    ('sales_per_1000_residents', 'EVs_Per_Station')
+]
+# Note: We cannot test against unemployment rates here, as this is a static,
+# county-level analysis, and we do not have a single unemployment number for each county.
+
+
+# --- Step 4: Calculate the Correlation for Each Pair ---
+print("\n--- Step 4: Calculating Pearson Correlation Coefficients ---")
+correlation_results = []
+
+for var1, var2 in correlation_pairs:
+    # Calculate the Pearson correlation coefficient
+    corr_value = df_corr_analysis[var1].corr(df_corr_analysis[var2])
+
+    correlation_results.append({
+        'Metric_A': var1,
+        'Metric_B': var2,
+        'Correlation_Score': corr_value
+    })
+    print(f"Correlation between '{var1}' and '{var2}': {corr_value:.4f}")
+
+# --- Step 5: Create a Final Summary DataFrame ---
+# We will now create a clean, presentation-ready table of our results.
+print("\n--- Step 5: Creating the Final Summary DataFrame ---")
+df_final_correlation = pd.DataFrame(correlation_results)
+df_final_correlation = df_final_correlation.sort_values(by='Correlation_Score', ascending=False)
+
+
+# --- Final Verification ---
+print("\n--- General Correlation Analysis Summary ---")
+print(df_final_correlation)
+print("\nInterpretation: A score closer to 1.0 indicates a stronger positive relationship.")
+
+# --- Optional: Visualize as a Heatmap ---
+# A heatmap is a powerful way to visualize a correlation matrix.
+# import seaborn as sns
+# import matplotlib.pyplot as plt
+# corr_matrix = df_corr_analysis[['sales_per_1000_residents', 'Median_Household_income', 'stations_per_1000_residents', 'EVs_Per_Station']].corr()
+# plt.figure(figsize=(10, 8))
+# sns.heatmap(corr_matrix, annot=True, cmap='coolwarm', fmt=".2f")
+# plt.title('Correlation Matrix of Key EV Adoption Factors', fontsize=16)
+# plt.show()
+
+#%%
+df_final_correlation
+#%%
+df_final_correlation.to_excel(r"C:\Users\devdu\Desktop\DATASETS\WASHINGTON STTATE\New dataset\df_new\Modeling and analysis\ANSWERING QUESTIONS\Correlation Analysis.xlsx")
+#%%
+ corr_matrix = df_corr_analysis[['sales_per_1000_residents', 'Median_Household_income', 'stations_per_1000_residents', 'EVs_Per_Station']].corr()
+#%%
+corr_matrix
+#%%
+
+#%%
+from email.header import Header
+
+import pandas as pd
+import numpy as np
+#%%
+df_new=pd.read_excel(r"C:\Users\devdu\Desktop\DATASETS\WASHINGTON STTATE\New dataset\df_new\Data cleaning and imputation\df_new_imputed.xlsx")
+
+#%%
+df_new=pd.DataFrame(df_new)
+#%%
+df_new.info()
+#%%
+df_new.describe()
+#%%
+df_new.drop(columns=['Unnamed: 0','Unnamed: 0.2','Unnamed: 0.1'], inplace=True)
+#%%
+df_new
+#%%
+##  QUESTION 1:
+    #1.1 Macro statistics: sales V/s Economy( Unemployment rate)
+#%%
+df_final=df_new.copy()
+#%%
+u=pd.read_excel(r"C:\Users\devdu\Desktop\DATASETS\WASHINGTON STTATE\New dataset\STATE DATA\Unemployment data.xlsx",skiprows=9,header=1)
+#%%
+unemployment=u.copy()
+#%% md
+Excellent. We are now executing the first step of our systematic inquiry into the drivers of EV adoption. You've loaded the unemployment data, and we will now use it to test our first hypothesis.
+
+I have examined the structure of your unemployment dataset. It's in a "wide" or "crosstab" format, which is very common in reports but needs to be transformed before we can use it for time-series analysis.
+
+Aim of the Code
+Our goal is to create a single, plot-ready dataset that contains two parallel time series:
+
+The total number of new EV sales per month in Washington.
+
+The statewide unemployment rate for that same month.
+
+To do this, we must first "unpivot" your unemployment data, transforming it from its wide format (Years as rows, Months as columns) into a "long" format (one row for each month). We will then merge this with our monthly EV sales data.
+#%%
+import calendar
+
+# --- AIM OF THE CODE ---
+# To create a unified time-series dataset comparing monthly new EV sales
+# with the statewide monthly unemployment rate, ready for visualization.
+
+# --- Step 1: Reshape the Unemployment Data (Unpivot/Melt) ---
+# Your 'unemployment' DataFrame is in a wide format. We need to transform it
+# into a long format with one row per month.
+print("--- Step 1: Reshaping Unemployment Data from Wide to Long Format ---")
+
+# The 'melt' function is the perfect tool for this 'unpivot' operation.
+df_unemployment_long = unemployment.melt(
+    id_vars=['Year'],               # The column to keep as the identifier
+    var_name='Month_Name',          # The new column for the old column headers (Jan, Feb, etc.)
+    value_name='unemployment_rate'  # The new column for the cell values
+)
+print("Unemployment data successfully reshaped.")
+
+
+#%%
+
+
+# --- Step 2: Create a Proper Datetime Column ---
+# To merge with our sales data, we need a real date column, not just text.
+print("\n--- Step 2: Creating a Datetime Column for Merging ---")
+
+# Create a mapping from month abbreviations to month numbers
+month_map = {name: num for num, name in enumerate(calendar.month_abbr) if num > 0}
+df_unemployment_long['Month_Num'] = df_unemployment_long['Month_Name'].map(month_map)
+
+# Combine Year and Month_Num to create a 'month' column in datetime format
+# We set the day to '1' as a standard for monthly data.
+df_unemployment_long['month'] = pd.to_datetime(
+    df_unemployment_long['Year'].astype(str) + '-' + df_unemployment_long['Month_Num'].astype(str) + '-01'
+)
+# Select and reorder the final columns
+df_unemployment_final = df_unemployment_long[['month', 'unemployment_rate']].copy()
+print("Datetime column created successfully.")
+
+
+#%%
+df_new['Sale Date'] = pd.to_datetime(
+    df_new['Sale Date'],
+    format='%d-%m-%Y',   # day-month-year
+    errors='coerce'
+)
+
+#%%
+df_new
+#%%
+# As a best practice, we verify the data type before proceeding.
+if not pd.api.types.is_datetime64_any_dtype(df_new['Sale Date']):
+    print("Warning: 'Sale Date' is not in datetime format. Converting now.")
+    df_new['Sale Date'] = pd.to_datetime(df_new['Sale Date'], errors='coerce')
+    df_new.dropna(subset=['Sale Date'], inplace=True)
+
+# To aggregate by month, we set 'Sale Date' as the index.
+# We use .resample('MS') to group data by Month Start frequency. This ensures
+# each period is represented by the first day of the month (e.g., 2023-01-01),
+# which creates a perfect key for merging with our unemployment data.
+monthly_sales = df_new.set_index('Sale Date')['DOL Vehicle ID'].resample('MS').nunique().reset_index()
+
+# Rename the columns for clarity before the merge.
+monthly_sales.rename(columns={'Sale Date': 'month', 'DOL Vehicle ID': 'new_ev_sales'}, inplace=True)
+print("Monthly EV sales aggregated successfully.")
+
+
+# --- Step 4: Merge the Two Time-Series ---
+# Now we combine our two datasets into a single, unified table.
+print("\n--- Step 4: Merging Sales and Unemployment Data ---")
+df_macro_analysis = pd.merge(
+    monthly_sales,
+    df_unemployment_final,
+    on='month',
+    how='left' # Use a left merge to keep all sales months
+)
+print("Merge successful.")
+
+
+# --- Step 5: Final Verification and Export ---
+# A final check to ensure the data is ready for Power BI.
+print("\n--- Final DataFrame for Macroeconomic Analysis ---")
+print(df_macro_analysis.head())
+
+# Save this DataFrame to a CSV for visualization
+# df_macro_analysis.to_csv('macro_vs_sales_trends.csv', index=False)
+# print("\nSuccessfully saved to 'macro_vs_sales_trends.csv'")
+
+#%%
+df_macro_analysis.to_excel(r"C:\Users\devdu\Desktop\DATASETS\WASHINGTON STTATE\New dataset\df_new\Modeling and analysis\ANSWERING QUESTIONS\Macro analysis EV salev VS Unemployment.xlsx")
+#%% md
+Historical median household income estimate.
+#%%
+house_hold_income=pd.read_excel(r"C:\Users\devdu\Desktop\DATASETS\WASHINGTON STTATE\WA DATASETS\median_household_income_estimates.xlsx")
+#%%
+house_hold_income
+#%%
+# Affordability Index
+#%%
+df_final=df_new.copy()
+#%%
+df_final
+#%%
+
+#
+df_final['Sale Date'] = pd.to_datetime(
+    df_final['Sale Date'],
+    format='%d-%m-%Y',   # day-month-year
+    errors='coerce'
+)
+#%%
+df_wa_income = house_hold_income[house_hold_income['County'] == 'Washington'].copy()
+#%%
+df_wa_income_long = df_wa_income.melt(
+    id_vars=['County'],
+    var_name='Year',
+    value_name='median_household_income'
+)
+#%%
+# Clean the 'Year' column and convert it to a number, dropping the 'County' column
+df_wa_income_long['Year'] = pd.to_numeric(df_wa_income_long['Year'])
+df_yearly_income_lookup = df_wa_income_long[['Year', 'median_household_income']].copy()
+
+print("Yearly income lookup table created successfully:")
+print(df_yearly_income_lookup.tail()) # Show the most recent years
+#%%
+# Clean the 'Year' column and convert it to a number, dropping the 'County' column
+df_wa_income_long['Year'] = pd.to_numeric(df_wa_income_long['Year'])
+df_yearly_income_lookup = df_wa_income_long[['Year', 'median_household_income']].copy()
+
+print("Yearly income lookup table created successfully:")
+print(df_yearly_income_lookup.tail()) # Show the most recent years
+#%%
+# --- Step 2: Aggregate Monthly Sales Data ---
+# Now, we will process 'df_final' to get our two key monthly metrics:
+# total sales and the median sale price for that month.
+print("\n--- Step 2: Aggregating Monthly EV Sales Data ---")
+
+# Set 'Sale Date' as the index to enable time-series resampling
+df_sales_indexed = df_final.set_index('Sale Date')
+
+# Resample by month ('MS' for Month Start) and perform two aggregations at once
+monthly_summary = df_sales_indexed.resample('MS').agg(
+    new_ev_sales=('DOL Vehicle ID', 'nunique'),
+    median_ev_price_monthly=('Sale Price', 'median')
+).reset_index()
+
+# Rename 'Sale Date' to 'month' for clarity
+monthly_summary.rename(columns={'Sale Date': 'month'}, inplace=True)
+print("Monthly sales and median price aggregated successfully.")
+
+
+#%%
+# --- Step 3: Merge and Calculate the Final Affordability Index ---
+print("\n--- Step 3: Merging Data and Calculating Final Index ---")
+
+# Create a 'Year' column in our monthly summary to use as a merge key
+monthly_summary['Year'] = monthly_summary['month'].dt.year
+
+# Merge the yearly income data into our monthly summary DataFrame
+df_final_analysis = pd.merge(
+    monthly_summary,
+    df_yearly_income_lookup,
+    on='Year',
+    how='left'
+)
+
+# Forward-fill income for years after our data ends (e.g., 2021+)
+# This is a reasonable assumption that income stayed at its last known level.
+df_final_analysis['median_household_income'].fillna(method='ffill', inplace=True)
+
+# Calculate our final, most accurate statewide Affordability Index
+df_final_analysis['affordability_index'] = df_final_analysis['median_ev_price_monthly'] / df_final_analysis['median_household_income']
+print("Final Affordability Index calculated.")
+
+
+# --- Step 4: Final Verification and Export ---
+# Select and reorder the final columns for a clean output.
+final_columns = ['month', 'new_ev_sales', 'median_ev_price_monthly', 'median_household_income', 'affordability_index']
+df_final_analysis = df_final_analysis[final_columns]
+
+print("\n--- Final DataFrame for Statewide Affordability Analysis ---")
+print(df_final_analysis.head())
+#%%
+df_final_analysis.to_excel(r"C:\Users\devdu\Desktop\DATASETS\WASHINGTON STTATE\New dataset\df_new\Modeling and analysis\ANSWERING QUESTIONS\New and imprved affordability index.xlsx")
+#%%
+df_final
+#%% md
+Cluster wise affordability analysis
+#%%
+df_clustered_summary=pd.read_excel(r"C:\Users\devdu\Desktop\DATASETS\WASHINGTON STTATE\New dataset\df_new\Modeling and analysis\k=4,CLUSTERED_SUMMARY_DF_NEW.xlsx")
+# are already loaded into your Jupyter Notebook.
+#%%
+df_clustered_summary.drop(columns=['Unnamed: 8','Unnamed: 11','Unnamed: 13','Unnamed: 15','Unnamed: 17'], inplace=True)
+#%%
+df_clustered_summary
+#%%
+cluster_df=df_clustered_summary.copy()
+#%%
+
+# --- Step 1: Prepare Sales Data ---
+# Ensure Sale Date is datetime
+df_new['Sale Date'] = pd.to_datetime(df_new['Sale Date'], errors='coerce')
+
+# Add Year + Month for grouping
+df_new['Year'] = df_new['Sale Date'].dt.year
+df_new['month'] = df_new['Sale Date'].dt.to_period('M').dt.to_timestamp()
+
+# Merge sales with cluster info
+sales_with_cluster = df_new.merge(
+    cluster_df[['County', 'Cluster']],
+    on='County',
+    how='left'
+)
+
+# --- Step 2: Aggregate Monthly EV Sales + Median Price by Cluster ---
+monthly_cluster_sales = (
+    sales_with_cluster
+    .groupby(['Cluster', 'month', 'Year'])
+    .agg(
+        new_ev_sales=('DOL Vehicle ID', 'nunique'),
+        median_sale_price=('Sale Price', 'median')
+    )
+    .reset_index()
+)
+
+# --- Step 3: Prepare Yearly Income Data ---
+# Melt wide income file (year columns) → long format
+df_income_long = house_hold_income.melt(
+    id_vars=['County'],
+    var_name='Year',
+    value_name='Median_Household_Income'
+)
+
+# Convert Year to int
+df_income_long['Year'] = df_income_long['Year'].astype(int)
+
+# Merge income with cluster
+cluster_year_income = df_income_long.merge(
+    cluster_df[['County','Cluster']],
+    on='County',
+    how='left'
+)
+
+# Aggregate to Cluster-Year level
+cluster_year_income = (
+    cluster_year_income
+    .groupby(['Cluster', 'Year'])['Median_Household_Income']
+    .mean()   # Average across counties in that cluster
+    .reset_index()
+)
+
+# --- Step 4: Merge Yearly Income into Monthly Sales ---
+monthly_cluster_sales = monthly_cluster_sales.merge(
+    cluster_year_income,
+    on=['Cluster', 'Year'],
+    how='left'
+)
+
+# --- Step 5: Calculate Affordability Index ---
+monthly_cluster_sales['affordability_index'] = (
+    monthly_cluster_sales['median_sale_price'] /
+    monthly_cluster_sales['Median_Household_Income']
+)
+
+# --- Step 6: Pivot to get Laggers / Followers / Leaders ---
+final_df = monthly_cluster_sales.pivot(
+    index='month',
+    columns='Cluster',
+    values=['new_ev_sales', 'affordability_index']
+)
+
+# Optional: Rename cluster IDs → names
+cluster_name_map = {0: 'Laggers', 1: 'Leaders', 3: 'Followers',2:'Outliers'}  # adjust if needed
+final_df.columns = [
+    f"{metric}_{cluster_name_map.get(cl, cl)}"
+    for metric, cl in final_df.columns
+]
+
+final_df = final_df.reset_index()
+
+print(final_df.head())
+
+#%%
+final_df.to_excel(r"C:\Users\devdu\Desktop\DATASETS\WASHINGTON STTATE\New dataset\df_new\Modeling and analysis\ANSWERING QUESTIONS\step3final- 2.xlsx")
+#%%
+df_new
+#%% md
+Question 2: Is range a factor for EV adoption? ,
+Business Question: Did the median range of BEVs sold in Washington increase from 2018 to 2024, and does this trend mirror the growth in sales volume?
+#%%
+df_final=df_new.copy()
+# --- AIM OF THE CODE ---
+# To create a summary table tracking the year-over-year trend of both the
+# total number of BEVs sold and their median electric range. This will be
+# used to prove the causal link between increasing range and market adoption.
+
+# This script assumes 'df_final' is your fully cleaned and purified DataFrame.
+
+# --- Step 1: Filter for BEVs Only ---
+# This analysis is specifically about the range anxiety associated with pure electrics.
+print("--- Step 1: Filtering for Battery Electric Vehicles (BEVs) ---")
+df_bev = df_final[df_final['Clean Alternative Fuel Vehicle Type'] == 'Battery Electric Vehicle (BEV)'].copy()
+df_bev['Year'] = df_bev['Sale Date'].dt.year
+print(f"Filtered dataset to {len(df_bev)} BEV sales records.")
+
+
+# --- Step 2: Group by Year and Aggregate ---
+# We will now group all BEV sales by their sale year and calculate our two key metrics.
+print("\n--- Step 2: Aggregating Sales and Median Range by Year ---")
+yearly_summary = df_bev.groupby('month').agg(
+    total_bev_sales=('DOL Vehicle ID', 'nunique'),
+    median_electric_range=('Electric Range', 'median')
+).reset_index()
+
+# Round the median range for a cleaner output
+yearly_summary['median_electric_range'] = yearly_summary['median_electric_range'].round(0)
+print("Aggregation complete.")
+
+
+# --- Step 3: Final Verification and Export ---
+# A final check to ensure the data is ready for Power BI.
+print("\n--- Final DataFrame for Range Trend Analysis ---")
+# We'll filter for the main years of EV growth for a cleaner chart.
+yearly_summary_filtered = yearly_summary[yearly_summary['Year'] >= 2018]
+print(yearly_summary_filtered)
+
+# --- Save for Power BI ---
+# This DataFrame is now ready to be imported into Power BI for visualization.
+# yearly_summary_filtered.to_csv('yearly_range_vs_sales_trends.csv', index=False)
+# print("\nSuccessfully saved to 'yearly_range_vs_sales_trends.csv'")
+
+#%%
+yearly_summary_filtered.to_excel(r"C:\Users\devdu\Desktop\DATASETS\WASHINGTON STTATE\New dataset\df_new\Modeling and analysis\ANSWERING QUESTIONS\Sales and Range over time.xlsx")
+#%%
+yearly_summary_filtered
+#%%
+
+#%%
+yearly_summary_filtered['Year']=pd.DatetimeIndex(yearly_summary_filtered['Year'],format= '%Y')
+yearly_summary_filtered
+#%%
+import pandas as pd
+
+# --- AIM OF THE CODE ---
+# To create a monthly summary table tracking the trend of both the
+# total number of BEVs sold and their median electric range, providing a
+# high-resolution view for our analysis.
+
+# This script assumes 'df_final' is your fully cleaned and purified DataFrame.
+
+# --- Step 1: Filter for BEVs Only ---
+# This analysis is specifically about the range anxiety associated with pure electrics.
+print("--- Step 1: Filtering for Battery Electric Vehicles (BEVs) ---")
+df_bev = df_final[df_final['Clean Alternative Fuel Vehicle Type'] == 'Battery Electric Vehicle (BEV)'].copy()
+print(f"Filtered dataset to {len(df_bev)} BEV sales records.")
+
+
+# --- Step 2: Group by Month and Aggregate ---
+# We will now group all BEV sales by their sale month and calculate our two key metrics.
+print("\n--- Step 2: Aggregating Sales and Median Range by Month ---")
+
+# We set 'Sale Date' as the index to enable time-series resampling.
+# 'MS' stands for Month Start, which is the standard for monthly aggregation.
+monthly_summary = df_bev.set_index('Sale Date').resample('MS').agg(
+    total_bev_sales=('DOL Vehicle ID', 'nunique'),
+    median_electric_range=('Electric Range', 'median')
+).reset_index()
+
+# Rename the date column for clarity
+monthly_summary.rename(columns={'Sale Date': 'month'}, inplace=True)
+
+# Round the median range for a cleaner output
+monthly_summary['median_electric_range'] = monthly_summary['median_electric_range'].round(0)
+print("Aggregation complete.")
+
+
+# --- Step 3: Final Verification and Export ---
+# A final check to ensure the data is ready for Power BI.
+print("\n--- Final DataFrame for Monthly Range Trend Analysis ---")
+# We'll filter for the main years of EV growth for a cleaner chart.
+monthly_summary_filtered = monthly_summary[monthly_summary['month'].dt.year >= 2018]
+print(monthly_summary_filtered.head())
+
+# --- Save for Power BI ---
+# This DataFrame is now ready to be imported into Power BI for visualization.
+# monthly_summary_filtered.to_csv('monthly_range_vs_sales_trends.csv', index=False)
+# print("\nSuccessfully saved to 'monthly_range_vs_sales_trends.csv'")
+
+#%%
+monthly_summary_filtered.to_excel(r"C:\Users\devdu\Desktop\DATASETS\WASHINGTON STTATE\New dataset\df_new\Modeling and analysis\ANSWERING QUESTIONS\Monthly Sales and Range over time.xlsx")
+#%%
+y=df_new[(df_new['Year']>=2022) & (df_new['Clean Alternative Fuel Vehicle Type']=='Battery Electric Vehicle (BEV)')]
+#%%
+y
+#%%
+y.describe()
+#%%
+y['Electric Range'].median()
+#%%
+z=df_new[(df_new['Year']>=2019) & (df_new['Year']<2022)]
+z=z[z['Clean Alternative Fuel Vehicle Type']=='Battery Electric Vehicle (BEV)']
+#%%
+z.describe()
+#%%
+z['Electric Range'].median()
+#%%
+df_new.to_excel(r"C:\Users\devdu\Desktop\DATASETS\WASHINGTON STTATE\New dataset\df_new\Modeling and analysis\ANSWERING QUESTIONS\df_new with month.xlsx")
+#%% md
+Impact of subsidies on sales
+#%%
+import pandas as pd
+
+# --- AIM OF THE CODE ---
+# To analyze the effectiveness of the CAFV subsidy program by calculating not just
+# the raw count of eligible sales, but also the PERCENTAGE of total monthly
+# sales that were eligible for the subsidy over time.
+
+#%%
+df_final=df_new.copy()
+#%%
+df_final
+#%%
+df_final["2019 HB 2042: Clean Alternative Fuel Vehicle (CAFV) Eligibility"].value_counts()
+#%%
+
+#
+df_final['Sale Date'] = pd.to_datetime(
+    df_final['Sale Date'],
+    format='%d-%m-%Y',   # day-month-year
+    errors='coerce'
+)
+#%%
+df_final['month'] = df_final['Sale Date'].dt.to_period('M').dt.to_timestamp()
+#%%
+# --- Step 2: Calculate Total Monthly Sales ---
+print("\n--- Step 2: Calculating Total Monthly Sales ---")
+total_monthly_sales = df_final.groupby('month')['DOL Vehicle ID'].nunique().reset_index()
+total_monthly_sales.rename(columns={'DOL Vehicle ID': 'total_sales'}, inplace=True)
+#%%
+# --- Step 3: Calculate CAFV-Eligible Monthly Sales ---
+print("\n--- Step 3: Calculating CAFV-Eligible Monthly Sales ---")
+# First, filter the DataFrame for only the eligible sales
+
+df_eligible = df_final[df_final['2019 HB 2042: Clean Alternative Fuel Vehicle (CAFV) Eligibility'] == 'Clean Alternative Fuel Vehicle']
+
+# Now, group the eligible sales by month and count them
+eligible_monthly_sales = df_eligible.groupby('month')['DOL Vehicle ID'].nunique().reset_index()
+eligible_monthly_sales.rename(columns={'DOL Vehicle ID': 'eligible_sales'}, inplace=True)
+
+#%%
+# --- Step 4: Merge and Engineer the Final KPI ---
+print("\n--- Step 4: Merging Data and Engineering the 'Effectiveness' KPI ---")
+# Merge the total sales and eligible sales tables
+df_subsidy_analysis = pd.merge(total_monthly_sales, eligible_monthly_sales, on='month', how='left')
+
+# Fill any months with no eligible sales with 0
+df_subsidy_analysis['eligible_sales'].fillna(0, inplace=True)
+
+# Engineer our key strategic metric: the percentage of sales that were eligible
+df_subsidy_analysis['percent_of_sales_eligible'] = \
+    (df_subsidy_analysis['eligible_sales'] / df_subsidy_analysis['total_sales']) * 100
+
+print("Final analysis DataFrame created successfully.")
+
+#%%
+# --- Step 5: Final Verification and Export ---
+print("\n--- Final DataFrame for Subsidy Effectiveness Analysis ---")
+print(df_subsidy_analysis.head())
+
+#%%
+df_subsidy_analysis.to_excel(r"C:\Users\devdu\Desktop\DATASETS\WASHINGTON STTATE\New dataset\df_new\Modeling and analysis\ANSWERING QUESTIONS\Sales of CAFV eligible vahivles.xlsx")
+#%%
+
+#%%
+df
